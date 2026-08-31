@@ -1,0 +1,26 @@
+# Build output. Regenerate with: npm run build
+# Nothing here is source. Every file in dist/ is derived from src/.
+dist/
+
+# Full-size photo originals. These are large and belong in cloud storage,
+# not in git. npm run images turns them into src/assets/img/ derivatives.
+photos-original/
+
+# Dependencies. sharp is the only one, it is dev-only and optional.
+node_modules/
+package-lock.json
+
+# Local agent tooling config. Machine-specific absolute paths, not part of
+# the deliverable.
+.claude/
+.codex/
+.agents/
+
+# Scratch
+.tmp/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

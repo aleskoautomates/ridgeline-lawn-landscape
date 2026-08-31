@@ -1,0 +1,17 @@
+{
+  "name": "ridgeline-lawn-landscape",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static website for Ridgeline Lawn & Landscape, LLC (Carmel, Indiana). Zero-dependency Node generator that outputs a plain static site to dist/.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "node -e \"import('node:fs').then(fs=>fs.rmSync('dist',{recursive:true,force:true}))\"",
+    "serve": "node tools/serve.mjs",
+    "dev": "node build.mjs && node tools/serve.mjs",
+    "images": "node tools/optimize-images.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
