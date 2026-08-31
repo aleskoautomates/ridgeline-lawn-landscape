@@ -239,51 +239,16 @@ with the landscape lighting on if that is available.
 
 ## Wiring the forms
 
-Two forms, two handlers, both shipped in `dist/`.
+Two forms, two Vercel Functions.
 
 | Form | Where | Fields | Handler |
 |---|---|---|---|
-| Free estimate | `/contact/` | name, phone, email, address, size, 8 service checkboxes, photo upload, start date, notes | `estimate.php` |
-| Reserve My Spot | `/packages/` and homepage | name, phone, address, package | `reserve.php` |
+| Free estimate | `/contact/` | name, phone, email, address, size, 8 service checkboxes, photo upload, start date, notes | `api/estimate.js` |
+| Reserve My Spot | `/packages/` and homepage | name, phone, address, package | `api/reserve.js` |
 
-Both post to `estimates@ridgelinelawn.example.com` (from `site.email`) and
-redirect to `/thank-you/` on success.
-
-**On PHP hosting (cPanel, most shared hosts): it already works.** Upload
-`dist/`, send a test through each form, confirm both arrive.
-
-The estimate handler re-validates everything server side, checks uploads by
-real MIME type rather than filename, renames every file, attaches them to the
-email and deletes them. Nothing is written into the web root, so there is no
-path to execute an uploaded file. Both forms carry a honeypot field.
-
-**On static hosting with no PHP** (Netlify, Vercel, Cloudflare Pages, S3),
-change the two `action` values in `src/data/site.mjs`:
-
-```js
-forms: {
-  estimateAction: 'https://formspree.io/f/YOURFORMID',
-  reserveAction:  'https://formspree.io/f/YOUROTHERID',
-  ...
-}
-```
-
-Formspree, Web3Forms and Basin all accept `multipart/form-data` with file
-attachments on paid tiers. Confirm the file size limit covers 8 photos at
-10 MB before committing to one. For Netlify, add `netlify` and
-`data-netlify="true"` to the form tags in `src/lib/components.mjs` and use
-Netlify Forms with the file upload field.
-
-**Upload limits** live in one place, `site.forms`: `maxUploadMb` (10),
-`maxUploadFiles` (8) and `acceptedUploads`. Changing them updates the helper
-text, the client-side check and the PHP validation together. If you raise
-them, also raise `upload_max_filesize` and `post_max_size` in the shipped
-`.htaccess`.
-
-`npm run serve` does not run PHP. Submitting a form locally will 404 on
-`estimate.php`. That is expected; test forms on the real host.
-
----
+Both validate everything server side, carry a honeypot field, and redirect to
+`/thank-you/` on success. Setup, environment variables and the photo size
+constraint are all in **Deploying to Vercel** below.
 
 ## Deploying
 
@@ -293,13 +258,12 @@ Shipped in `dist/`:
 
 - 33 HTML pages as `index.html` inside clean-URL folders
 - `assets/css/site.css`, `assets/js/site.js`, `assets/img/*`
-- `estimate.php`, `reserve.php`
 - `sitemap.xml`, `robots.txt`, `site.webmanifest`
 - `favicon.svg`, `apple-touch-icon.png`
 - `404.html`
-- `.htaccess`
+- `.htaccess` (Apache only; Vercel ignores it, see below)
 
-**The `.htaccess` file is easy to miss.** It is a dotfile and many FTP
+**On Apache hosting, the `.htaccess` file is easy to miss.** It is a dotfile and many FTP
 clients hide it by default. It forces HTTPS, canonicalises to `www`, adds a
 trailing slash to directory URLs so `/services` and `/services/` do not
 become two indexable pages, sets the 404 document, adds security headers, and
@@ -321,27 +285,57 @@ after the Build completed" even though the build succeeded. It also sets
 security headers and asset cache lifetimes that `.htaccess` provides on
 Apache. **Vercel ignores `.htaccess` completely.**
 
-**The forms do not work on Vercel.** Vercel does not execute PHP, so
-`estimate.php` and `reserve.php` are served as inert files and both forms
-fail. This is the single thing to sort out before pointing a domain at a
-Vercel deploy, because those two forms are the entire conversion path of the
-site. Options, cheapest first:
+### The forms
 
-1. **Point the forms at a hosted endpoint.** Change `estimateAction` and
-   `reserveAction` in `src/data/site.mjs` to a Formspree, Web3Forms or Basin
-   URL and rebuild. Confirm the plan allows file uploads at 8 files x 10 MB
-   before committing to one; the photo upload is the highest-value field on
-   the site and a provider that silently drops attachments defeats it.
-2. **Port the handlers to Vercel Functions.** Create `api/estimate.js` and
-   `api/reserve.js`, point the two actions at `/api/estimate` and
-   `/api/reserve`, and send mail through Resend or SendGrid. Needs an API key
-   in Vercel's environment variables. More work, but keeps everything in one
-   deploy and one bill.
-3. **Host on PHP instead.** The shipped handlers already work as-is on any
-   cPanel-style host. Nothing to change.
+Vercel does not run PHP, so the original `estimate.php` and `reserve.php`
+were removed (recoverable from git history at commit `35f5144`). Both forms
+are now Vercel Functions:
 
-Whichever you pick, delete `src/server/*.php` once it is no longer used, so
-the build stops copying dead handlers into the output.
+| Route | File | Purpose |
+|---|---|---|
+| `POST /api/estimate` | `api/estimate.js` | Free estimate, including photos |
+| `POST /api/reserve` | `api/reserve.js` | Package reservation |
+
+Still zero npm dependencies. Mail goes out through Resend's REST API using
+`fetch`, which is built into Vercel's Node runtime.
+
+**Required environment variables.** Set these in the Vercel dashboard under
+Settings, Environment Variables, for Production and Preview. The site returns
+a polite "please call us instead" and logs the missing names if any are absent.
+
+| Variable | Example | Notes |
+|---|---|---|
+| `RESEND_API_KEY` | `re_...` | From resend.com. Free tier covers 3,000 emails a month, which is far more than this form will ever see. |
+| `ESTIMATE_TO_EMAIL` | `estimates@ridgelinelawn.com` | Where submissions land. |
+| `MAIL_FROM` | `Ridgeline Website <no-reply@ridgelinelawn.com>` | Must be on a domain verified in Resend, or delivery fails. |
+
+Never put the key in the repo. It belongs only in Vercel's environment.
+
+**Why photos are resized in the browser.** A Vercel function rejects any
+request body over **4.5 MB**, and one modern phone photo is 3 to 5 MB. Eight
+of them is nowhere near fitting. So `site.js` resizes each photo to 1600px on
+the long edge and re-encodes it as JPEG before sending. Measured on a
+4000x3000 source: **1.96 MB becomes 232 KB**, an 8x reduction, and eight
+photos land around 2.5 MB including base64 overhead. That is still far more
+detail than anyone needs to price a yard.
+
+Tuning lives at the top of the `forms` block in `src/assets/js/site.js`:
+`MAX_EDGE`, `JPEG_QUALITY` and `MAX_TOTAL_BYTES`. If you raise them, keep the
+total under about 3.6 MB or submissions will start failing at the edge.
+
+**Known gap: HEIC.** Chrome and Firefox cannot decode HEIC into a canvas, so
+those files are skipped and the visitor is told exactly how many and why,
+rather than being left to guess. iOS normally converts to JPEG when a photo
+goes through a file input, so this is uncommon. If it ever becomes a real
+problem, the fix is client-side decoding, not a server change.
+
+**With JavaScript off**, the form posts natively as urlencoded and the
+function accepts it: all text fields arrive, no photos, and the email says so.
+The visitor still gets through.
+
+**Testing locally.** `npm run serve` serves static files only and does not run
+functions, so form posts will 404. Use `npx vercel dev` to exercise the
+functions locally, or test on a Vercel preview deployment.
 
 **On Nginx**, translate the `.htaccess` rules: force HTTPS, redirect non-www
 to www, `try_files $uri $uri/ /404.html`, and add the same security headers.
@@ -376,7 +370,7 @@ src/lib/           rendering. edit only to change structure.
 
 src/pages/         one file per page type
 src/assets/        css, js, img
-src/server/        estimate.php, reserve.php
+api/               estimate.js, reserve.js, _mail.js (Vercel Functions)
 tools/             serve.mjs, verify.mjs, optimize-images.mjs
 build.mjs          the whole build
 dist/              generated. never edit by hand.

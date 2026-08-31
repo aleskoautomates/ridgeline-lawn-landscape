@@ -352,7 +352,6 @@ export function estimateForm({ compact = false, id = 'estimate' } = {}) {
       id="${esc(id)}"
       action="${esc(f.estimateAction)}"
       method="post"
-      enctype="multipart/form-data"
       novalidate
       data-estimate-form>
 

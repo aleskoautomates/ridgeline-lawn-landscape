@@ -408,6 +408,74 @@
      browser can be forged.
   ----------------------------------------------------------------------- */
   (function forms() {
+    /* -- Photo compression -------------------------------------------------
+       A Vercel function rejects a request body over 4.5 MB, and a single
+       modern phone photo is 3 to 5 MB. Eight of them is nowhere close to
+       fitting, so the browser resizes to 1600px on the long edge and
+       re-encodes as JPEG before anything is sent.
+
+       That is still far more detail than anyone needs to price a yard, and
+       it turns roughly 40 MB of originals into roughly 2 to 3 MB.
+
+       HEIC is the known gap: Chrome and Firefox cannot decode it into a
+       canvas, so those files resolve to null and the visitor is told which
+       ones were skipped rather than being left to guess. iOS normally hands
+       over JPEG through a file input, so this is uncommon in practice.
+    --------------------------------------------------------------------- */
+    var MAX_EDGE = 1600;
+    var JPEG_QUALITY = 0.82;
+    var MAX_TOTAL_BYTES = 3.6 * 1024 * 1024;   // headroom under the 4.5 MB cap
+
+    function isImage(file) {
+      return !!file && String(file.type || "").indexOf("image/") === 0;
+    }
+
+    function compressImage(file) {
+      return new Promise(function (resolve) {
+        if (!isImage(file)) return resolve(null);
+        var url = URL.createObjectURL(file);
+        var im = new Image();
+        im.onload = function () {
+          var w = im.naturalWidth || 0, h = im.naturalHeight || 0;
+          if (!w || !h) { URL.revokeObjectURL(url); return resolve(null); }
+          var scale = Math.min(1, MAX_EDGE / Math.max(w, h));
+          var canvas = document.createElement("canvas");
+          canvas.width = Math.round(w * scale);
+          canvas.height = Math.round(h * scale);
+          canvas.getContext("2d").drawImage(im, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          canvas.toBlob(function (blob) {
+            if (!blob) return resolve(null);
+            var reader = new FileReader();
+            reader.onload = function () {
+              var parts = String(reader.result).split(",");
+              resolve(parts.length > 1
+                ? { name: file.name, type: "image/jpeg", dataBase64: parts[1] }
+                : null);
+            };
+            reader.onerror = function () { resolve(null); };
+            reader.readAsDataURL(blob);
+          }, "image/jpeg", JPEG_QUALITY);
+        };
+        im.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+        im.src = url;
+      });
+    }
+
+    function collect(form) {
+      var payload = {};
+      new FormData(form).forEach(function (value, key) {
+        if (key === "photos[]") return;            // handled separately
+        if (key.slice(-2) === "[]") {
+          if (!payload[key]) payload[key] = [];
+          payload[key].push(value);
+        } else {
+          payload[key] = value;
+        }
+      });
+      return payload;
+    }
+
     var EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
     function digits(s) { return (s || '').replace(/\D/g, ''); }
@@ -483,12 +551,74 @@
           return;
         }
 
+        /* Valid. Take over the submit so the photos can be compressed and
+           the whole thing posted as JSON, which the Vercel function parses
+           natively. A native multipart post would not be parsed there. */
+        e.preventDefault();
+
+        var btn = form.querySelector("button[type=submit]") || form.querySelector("button");
+        var originalLabel = btn ? btn.textContent : "";
+        if (btn) { btn.disabled = true; btn.textContent = "Sending..."; }
         if (status) {
-          status.className = 'form__status';
-          status.textContent = 'Sending\u2026';
+          status.className = "form__status";
+          status.textContent = "Sending...";
         }
-        var btn = form.querySelector('button[type="submit"]');
-        if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+
+        (async function () {
+          var payload = collect(form);
+          var skipped = 0, dropped = 0;
+
+          var fileInput = form.querySelector("input[type=file]");
+          if (fileInput && fileInput.files && fileInput.files.length) {
+            if (status) status.textContent = "Preparing photos...";
+            var files = Array.prototype.slice.call(fileInput.files, 0, 8);
+            var photos = [], total = 0;
+            for (var i = 0; i < files.length; i++) {
+              var shot = await compressImage(files[i]);
+              if (!shot) { skipped++; continue; }
+              var bytes = Math.floor(shot.dataBase64.length * 0.75);
+              if (total + bytes > MAX_TOTAL_BYTES) { dropped++; continue; }
+              total += bytes;
+              photos.push(shot);
+            }
+            payload.photos = photos;
+          }
+
+          if (status) status.textContent = "Sending...";
+
+          var result = null;
+          try {
+            var res = await fetch(form.getAttribute("action"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            try { result = await res.json(); } catch (_) { result = null; }
+            if (!res.ok) {
+              throw new Error(
+                (result && (result.error || (result.errors && result.errors.join(" ")))) ||
+                "That did not send. Please call us instead."
+              );
+            }
+          } catch (err) {
+            if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
+            if (status) {
+              status.className = "form__status is-error";
+              status.textContent = (err && err.message) || "That did not send. Please call us instead.";
+            }
+            return;
+          }
+
+          var notes = [];
+          if (skipped) notes.push(skipped + " photo" + (skipped === 1 ? " was" : "s were") + " skipped because this browser could not read the format.");
+          if (dropped) notes.push(dropped + " photo" + (dropped === 1 ? " was" : "s were") + " left off to stay under the size limit.");
+          if (notes.length && status) {
+            status.className = "form__status";
+            status.textContent = "Sent. " + notes.join(" ");
+          }
+
+          window.location.href = (result && result.redirect) || "/thank-you/";
+        })();
       });
     });
   })();

@@ -68,11 +68,12 @@ export const site = {
 
   /* -- Where the forms send to -------------------------------------------- */
   forms: {
-    /* PHP handlers ship in dist/ and work on any cPanel-style PHP host.
-       Swap these for a Formspree/Netlify/Web3Forms endpoint if the site is
-       hosted somewhere without PHP. README covers both paths. */
-    estimateAction: '/estimate.php',
-    reserveAction: '/reserve.php',
+    /* Vercel Functions in api/. Vercel does not run PHP, so the old
+       estimate.php and reserve.php were removed. See README, "Wiring the
+       forms". Requires RESEND_API_KEY, ESTIMATE_TO_EMAIL and MAIL_FROM in
+       the Vercel environment. */
+    estimateAction: '/api/estimate',
+    reserveAction: '/api/reserve',
     maxUploadMb: 10,
     maxUploadFiles: 8,
     acceptedUploads: '.jpg,.jpeg,.png,.heic,.heif,.webp,image/jpeg,image/png,image/heic,image/heif,image/webp'

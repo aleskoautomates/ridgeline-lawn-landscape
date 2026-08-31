@@ -298,23 +298,17 @@ AddType image/webp .webp
 `;
 }
 
-/* -- PHP handlers ---------------------------------------------------------
-   Copied out of src/server/ with the real email address and site name
-   substituted in, so the address lives in one place (src/data/site.mjs).
+/* -- Server handlers ------------------------------------------------------
+   Nothing to copy any more. The site deploys to Vercel, where the form
+   handlers are Vercel Functions in api/ at the repo root, deployed directly
+   by Vercel rather than emitted into dist/. The old PHP handlers were
+   removed; recover them from git history if the site ever moves to a
+   PHP host.
 ------------------------------------------------------------------------- */
-function buildHandlers() {
-  const dir = path.join(ROOT, 'src/server');
+function countApiFunctions() {
+  const dir = path.join(ROOT, 'api');
   if (!fs.existsSync(dir)) return 0;
-  let n = 0;
-  for (const file of fs.readdirSync(dir)) {
-    if (!file.endsWith('.php')) continue;
-    const src = fs.readFileSync(path.join(dir, file), 'utf8')
-      .replaceAll('ESTIMATE_EMAIL_PLACEHOLDER', site.email)
-      .replaceAll('SITE_NAME_PLACEHOLDER', site.name);
-    write(file, src);
-    n++;
-  }
-  return n;
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.js') && !f.startsWith('_')).length;
 }
 
 /* -- Routes --------------------------------------------------------------- */
@@ -417,8 +411,8 @@ function main() {
   /* 3. Generated placeholder imagery for anything with no real photo yet */
   const imgReport = buildPlaceholders();
 
-  /* 4. Server handlers */
-  const handlers = buildHandlers();
+  /* 4. Form handlers live in api/, deployed by Vercel directly */
+  const handlers = countApiFunctions();
 
   /* 5. Static root files */
   const indexable = routes.filter((r) => !r.noindex && r.priority > 0);
@@ -446,7 +440,7 @@ function main() {
   console.log('    ' + projects.length + ' gallery projects');
   console.log('  assets: ' + css + ' css, ' + js + ' js, ' + im + ' copied images, ' +
               imgReport.made + ' generated placeholders');
-  console.log('  handlers: ' + handlers + ' php');
+  console.log('  handlers: ' + handlers + ' vercel functions in api/ (not emitted to dist)');
   console.log('  output: dist/');
 
   if (warnings.length) {
