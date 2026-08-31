@@ -309,6 +309,40 @@ duplicate URLs and serves over HTTP.
 HSTS is present but commented out. Switch it on only after HTTPS is confirmed
 working on every hostname. It is difficult to undo.
 
+### Deploying to Vercel
+
+`vercel.json` in the repo root already configures this. Import the repo and
+deploy; no dashboard settings are needed.
+
+It sets `outputDirectory: "dist"`. Without that, Vercel's no-framework preset
+looks for `public/` and fails with "No Output Directory named public found
+after the Build completed" even though the build succeeded. It also sets
+`trailingSlash: true` to match the internal links, and carries over the
+security headers and asset cache lifetimes that `.htaccess` provides on
+Apache. **Vercel ignores `.htaccess` completely.**
+
+**The forms do not work on Vercel.** Vercel does not execute PHP, so
+`estimate.php` and `reserve.php` are served as inert files and both forms
+fail. This is the single thing to sort out before pointing a domain at a
+Vercel deploy, because those two forms are the entire conversion path of the
+site. Options, cheapest first:
+
+1. **Point the forms at a hosted endpoint.** Change `estimateAction` and
+   `reserveAction` in `src/data/site.mjs` to a Formspree, Web3Forms or Basin
+   URL and rebuild. Confirm the plan allows file uploads at 8 files x 10 MB
+   before committing to one; the photo upload is the highest-value field on
+   the site and a provider that silently drops attachments defeats it.
+2. **Port the handlers to Vercel Functions.** Create `api/estimate.js` and
+   `api/reserve.js`, point the two actions at `/api/estimate` and
+   `/api/reserve`, and send mail through Resend or SendGrid. Needs an API key
+   in Vercel's environment variables. More work, but keeps everything in one
+   deploy and one bill.
+3. **Host on PHP instead.** The shipped handlers already work as-is on any
+   cPanel-style host. Nothing to change.
+
+Whichever you pick, delete `src/server/*.php` once it is no longer used, so
+the build stops copying dead handlers into the output.
+
 **On Nginx**, translate the `.htaccess` rules: force HTTPS, redirect non-www
 to www, `try_files $uri $uri/ /404.html`, and add the same security headers.
 
